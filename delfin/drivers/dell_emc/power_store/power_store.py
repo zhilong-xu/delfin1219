@@ -171,3 +171,15 @@ class PowerStoreDriver(driver.StorageDriver):
 
     def list_masking_views(self, context):
         return self.rest_handler.list_masking_views(self.storage_id)
+
+    def list_filesystems(self, context):
+        return self.rest_handler.list_filesystems(self.storage_id)
+
+    def list_quotas(self, context):
+        return self.rest_handler.list_quotas(self.storage_id)
+
+    def list_qtrees(self, context):
+        return self.rest_handler.list_qtrees(self.storage_id)
+
+    def list_shares(self, context):
+        return self.rest_handler.list_shares(self.storage_id)

@@ -452,3 +452,12 @@ PORT_CAP = {
         "description": constants.PortMetric.WRITE_IO_SIZE.description
     }
 }
+FS_TYPE_MAP = {
+    'Primary': constants.FSType.THIN,
+    'Snapshot': constants.FSType.THICK
+}
+FS_SECURITY_MODE_MAP = {
+    'Native': constants.NASSecurityMode.NATIVE,
+    'UNIX': constants.NASSecurityMode.UNIX,
+    'Windows': constants.NASSecurityMode.NTFS
+}

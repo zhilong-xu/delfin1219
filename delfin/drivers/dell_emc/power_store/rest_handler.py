@@ -86,11 +86,24 @@ class RestHandler(RestClient):
         '/api/rest/ip_pool_address?select=id,name,address,appliance_id,' \
         'node_id,purposes&limit=2000&offset={}'
     REST_METRICS_ARCHIVE_URL = '/api/rest/metrics_archive'
-    REST_FILE_SYSTEM_URL = '/api/rest/file_system'
-    REST_FILE_TREE_QUOTA_URL = '/api/rest/file_tree_quota'
-    REST_SMB_SHARE_URL = '/api/rest/smb_share'
+    REST_FILE_SYSTEM_URL = \
+        '/api/rest/file_system?select=id,name,access_policy,filesystem_type,' \
+        'size_total,size_used&limit=2000&offset={}'
+    REST_FILE_TREE_QUOTA_URL = \
+        '/api/rest/file_tree_quota?select=id,file_system_id,path,' \
+        'description,is_user_quotas_enforced,state,hard_limit,soft_limit,' \
+        'size_used&limit=2000&offset={}'
+    REST_SMB_SHARE_URL = \
+        '/api/rest/smb_share?select=id,name,file_system_id,path' \
+        '&limit=2000&offset={}'
+    REST_NFS_EXPORT_URL = \
+        '/api/rest/nfs_export?select=id,name,description,file_system,path' \
+        '&limit=2000&offset={}'
     REST_NFS_SERVER_URL = '/api/rest/nfs_server'
-    REST_FILE_USER_QUOTA_URL = '/api/rest/file_user_quota'
+    REST_FILE_USER_QUOTA_URL = \
+        '/api/rest/file_user_quota?select=id,uid,hard_limit,size_used,' \
+        'soft_limit,state,tree_quota_id,unix_name,windows_name,windows_sid,' \
+        'file_system_id&limit=2000&offset={}'
     AUTH_KEY = 'DELL-EMC-TOKEN'
 
     def __init__(self, **kwargs):
@@ -983,3 +996,121 @@ class RestHandler(RestClient):
             timestamp = int((timestamp_s + time_difference) * units.k)\
                 if system_time else None
             return timestamp
+
+    def list_filesystems(self, storage_id):
+        list_filesystems = []
+        file_system_list = self.rest_call(self.REST_FILE_SYSTEM_URL)
+        for file_system in file_system_list:
+            fs_type = file_system.get('filesystem_type')
+            total_capacity = int(file_system.get('size_total'))
+            used_capacity = int(file_system.get('size_used'))
+            file_dict = {
+                'native_filesystem_id': file_system.get('id'),
+                'name': file_system.get('name'),
+                'type': consts.FS_TYPE_MAP.get(fs_type, constants.FSType.THIN),
+                'status': constants.FilesystemStatus.NORMAL,
+                'storage_id': storage_id,
+                'total_capacity': total_capacity,
+                'used_capacity': used_capacity,
+                'free_capacity': total_capacity - used_capacity,
+                'security_mode': consts.FS_SECURITY_MODE_MAP.get(
+                    file_system.get('access_policy'),
+                    constants.NASSecurityMode.MIXED)
+            }
+            list_filesystems.append(file_dict)
+        return list_filesystems
+
+    def list_qtrees(self, storage_id):
+        list_qtrees = []
+        qtrees_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
+        for qtrees in qtrees_list:
+            qtrees_id = qtrees.get('id')
+            qtrees_dict = {
+                'native_qtree_id': qtrees_id,
+                'name': qtrees_id,
+                'storage_id': storage_id,
+                'native_filesystem_id': qtrees.get('file_system_id'),
+                'path': qtrees.get('path'),
+                'security_mode': ''
+            }
+            list_qtrees.append(qtrees_dict)
+        return list_qtrees
+
+    def list_quotas(self, storage_id):
+        list_quotas = []
+        tree_quota_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
+        for tree_quota in tree_quota_list:
+            tree_quotas_dict = {
+                'native_quota_id': tree_quota.get('id'),
+                'type': constants.QuotaType.TREE,
+                'storage_id': storage_id,
+                'native_filesystem_id': tree_quota.get('file_system_id'),
+                'native_qtree_id': tree_quota.get('id'),
+                'capacity_hard_limit': tree_quota.get('hard_limit'),
+                'capacity_soft_limit': tree_quota.get('soft_limit'),
+                'used_capacity': tree_quota.get('size_used'),
+                'user_group_name': ''
+            }
+            list_quotas.append(tree_quotas_dict)
+        user_quota_list = self.rest_call(self.REST_FILE_USER_QUOTA_URL)
+        for user_quota in user_quota_list:
+            user_group_name = user_quota.get('unix_name')
+            windows_name = user_quota.get('windows_name')
+            windows_sid = user_quota.get('windows_sid')
+            uid = user_quota.get('uid')
+            if windows_name:
+                user_group_name = windows_name
+            if windows_sid:
+                user_group_name = windows_sid
+            if uid:
+                user_group_name = uid
+            user_quotas_dict = {
+                'native_quota_id': user_quota.get('id'),
+                'type': constants.QuotaType.USER,
+                'storage_id': storage_id,
+                'native_filesystem_id': user_quota.get('file_system_id'),
+                'native_qtree_id': user_quota.get('tree_quota_id'),
+                'capacity_hard_limit': user_quota.get('hard_limit'),
+                'capacity_soft_limit': user_quota.get('soft_limit'),
+                'used_capacity': user_quota.get('size_used'),
+                'user_group_name': user_group_name
+            }
+            list_quotas.append(user_quotas_dict)
+        return list_quotas
+
+    def list_shares(self, storage_id):
+        list_shares = []
+        nfs_list = self.rest_call(self.REST_NFS_EXPORT_URL)
+        for nfs in nfs_list:
+            file_system_id = nfs.get('file_system', {}).get('id')
+            nfs_dict = {
+                'native_share_id': nfs.get('id'),
+                'name': nfs.get('name'),
+                'storage_id': storage_id,
+                'native_filesystem_id': file_system_id,
+                'native_qtree_id': '',
+                'protocol': constants.ShareProtocol.NFS,
+                'path': nfs.get('path')
+            }
+            list_shares.append(nfs_dict)
+        shares_list = self.rest_call(self.REST_SMB_SHARE_URL)
+        for shares in shares_list:
+            shares_path = shares.get('path')
+            shares_dict = {
+                'native_share_id': shares.get('id'),
+                'name': shares.get('name'),
+                'storage_id': storage_id,
+                'native_filesystem_id': shares.get('file_system_id'),
+                'native_qtree_id': '',
+                'protocol': constants.ShareProtocol.CIFS,
+                'path': shares_path
+            }
+            list_shares.append(shares_dict)
+        return list_shares
+
+    def get_qutree_id(self):
+        qtrees_dict = {}
+        qtrees_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
+        for qtrees in qtrees_list:
+            qtrees_dict[qtrees.get('file_system_id')] = qtrees.get('id')
+        return qtrees_dict
