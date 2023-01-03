@@ -37,7 +37,7 @@ class RestHandler(RestClient):
     REST_CLUSTER_URL = \
         '/api/rest/cluster?select=name,compatibility_level,global_id,state,' \
         'primary_appliance_id,id,system_time&limit=2000&offset={}'
-    REST_APPLIANCE_URL = '/api/rest/appliance?select=id,name,model' \
+    REST_APPLIANCE_URL = '/api/rest/appliance?select=id,name,model,mode' \
                          '&limit=2000&offset={}'
     REST_SOFTWARE_INSTALLED_URL = \
         '/api/rest/software_installed?select=id,release_version,' \
@@ -88,7 +88,7 @@ class RestHandler(RestClient):
     REST_METRICS_ARCHIVE_URL = '/api/rest/metrics_archive'
     REST_FILE_SYSTEM_URL = \
         '/api/rest/file_system?select=id,name,access_policy,filesystem_type,' \
-        'size_total,size_used&limit=2000&offset={}'
+        'size_total,size_used,nas_server_id&limit=2000&offset={}'
     REST_FILE_TREE_QUOTA_URL = \
         '/api/rest/file_tree_quota?select=id,file_system_id,path,' \
         'description,is_user_quotas_enforced,state,hard_limit,soft_limit,' \
@@ -99,7 +99,8 @@ class RestHandler(RestClient):
     REST_NFS_EXPORT_URL = \
         '/api/rest/nfs_export?select=id,name,description,file_system,path' \
         '&limit=2000&offset={}'
-    REST_NFS_SERVER_URL = '/api/rest/nfs_server'
+    REST_NAS_SERVER_URL = \
+        '/api/rest/nas_server?select=id,name&limit=2000&offset={}'
     REST_FILE_USER_QUOTA_URL = \
         '/api/rest/file_user_quota?select=id,uid,hard_limit,size_used,' \
         'soft_limit,state,tree_quota_id,unix_name,windows_name,windows_sid,' \
@@ -231,6 +232,7 @@ class RestHandler(RestClient):
         appliances = self.rest_call(RestHandler.REST_APPLIANCE_URL)
         for appliance in appliances:
             appliance_id = appliance.get('id')
+            appliance_mode = appliance.get('mode')
             data = {'entity': consts.SPACE_METRICS_BY_APPLIANCE,
                     'entity_id': appliance_id}
             appliance_spaces = self.rest_call(self.REST_GENERATE_URL,
@@ -248,7 +250,8 @@ class RestHandler(RestClient):
                 'storage_id': storage_id,
                 'native_storage_pool_id': appliance_id,
                 'status': constants.StoragePoolStatus.NORMAL,
-                'storage_type': constants.StorageType.BLOCK,
+                'storage_type': consts.POOL_MODE_MAP.get(
+                    appliance.get('mode'), constants.StorageType.BLOCK),
                 'total_capacity': total_capacity,
                 'used_capacity': used_capacity,
                 'free_capacity': total_capacity - used_capacity
@@ -898,6 +901,26 @@ class RestHandler(RestClient):
             fc_port_metrics_list.extend(fc_port_metrics)
         return fc_port_metrics_list
 
+    def get_file_system_metrics(self, storage_id, resource_metrics, start_time,
+                                end_time):
+        file_system_metrics_list = []
+        file_systems = self.rest_call(self.REST_FILE_SYSTEM_URL)
+        for file_system in file_systems:
+            file_system_id = file_system.get('id')
+            file_system_name = file_system.get('name')
+            if not file_system_id or not file_system_name:
+                continue
+            data = {'entity': consts.PERFORMANCE_METRICS_BY_FILE_SYSTEM,
+                    'entity_id': file_system_id,
+                    'interval': consts.PERFORMANCE_METRICS_INTERVAL}
+            packaging_data = self.package_data(data, end_time, start_time)
+            file_system_metrics = self.set_metrics_data(
+                file_system_id, file_system_name, packaging_data,
+                resource_metrics, constants.ResourceType.FILESYSTEM,
+                storage_id)
+            file_system_metrics_list.extend(file_system_metrics)
+        return file_system_metrics_list
+
     @staticmethod
     def set_metrics_data(resource_id, resource_name, packaging_data,
                          resource_metrics, resource_type, storage_id):
@@ -1022,30 +1045,46 @@ class RestHandler(RestClient):
 
     def list_qtrees(self, storage_id):
         list_qtrees = []
-        qtrees_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
-        for qtrees in qtrees_list:
-            qtrees_id = qtrees.get('id')
+        nas_dict = {}
+        nas_server_list = self.rest_call(self.REST_NAS_SERVER_URL)
+        for nas_server in nas_server_list:
+            nas_server_id = nas_server.get('id')
+            nas_server_name = nas_server.get('name')
+            nas_dict[nas_server_id] = nas_server_name
+        file_system_list = self.rest_call(self.REST_FILE_SYSTEM_URL)
+        for file_system in file_system_list:
+            file_system_id = file_system.get('id')
+            file_system_name = file_system.get('name')
+            nas_server_id = file_system.get('nas_server_id')
+            nas_server_name = nas_dict.get(nas_server_id)
+            native_qtree_id = f'{nas_server_id}{file_system_id}'
             qtrees_dict = {
-                'native_qtree_id': qtrees_id,
-                'name': qtrees_id,
+                'native_qtree_id': hashlib.md5(
+                    native_qtree_id.encode()).hexdigest(),
+                'name': f'NAS Servers Name:{nas_server_name}'
+                        f'@File Systems Name:{file_system_name}',
                 'storage_id': storage_id,
-                'native_filesystem_id': qtrees.get('file_system_id'),
-                'path': qtrees.get('path'),
-                'security_mode': ''
+                'native_filesystem_id': file_system_id,
+                'path': '111111',
+                'security_mode': consts.FS_SECURITY_MODE_MAP.get(
+                    file_system.get('access_policy'),
+                    constants.NASSecurityMode.MIXED)
             }
             list_qtrees.append(qtrees_dict)
         return list_qtrees
 
     def list_quotas(self, storage_id):
         list_quotas = []
+        qtree_dict = self.get_qtree_id(storage_id)
         tree_quota_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
         for tree_quota in tree_quota_list:
+            file_system_id = tree_quota.get('file_system_id')
             tree_quotas_dict = {
                 'native_quota_id': tree_quota.get('id'),
                 'type': constants.QuotaType.TREE,
                 'storage_id': storage_id,
-                'native_filesystem_id': tree_quota.get('file_system_id'),
-                'native_qtree_id': tree_quota.get('id'),
+                'native_filesystem_id': file_system_id,
+                'native_qtree_id': qtree_dict.get(file_system_id),
                 'capacity_hard_limit': tree_quota.get('hard_limit'),
                 'capacity_soft_limit': tree_quota.get('soft_limit'),
                 'used_capacity': tree_quota.get('size_used'),
@@ -1064,12 +1103,13 @@ class RestHandler(RestClient):
                 user_group_name = windows_sid
             if uid:
                 user_group_name = uid
+            file_system_id = user_quota.get('file_system_id')
             user_quotas_dict = {
                 'native_quota_id': user_quota.get('id'),
                 'type': constants.QuotaType.USER,
                 'storage_id': storage_id,
                 'native_filesystem_id': user_quota.get('file_system_id'),
-                'native_qtree_id': user_quota.get('tree_quota_id'),
+                'native_qtree_id': qtree_dict.get(file_system_id),
                 'capacity_hard_limit': user_quota.get('hard_limit'),
                 'capacity_soft_limit': user_quota.get('soft_limit'),
                 'used_capacity': user_quota.get('size_used'),
@@ -1078,8 +1118,18 @@ class RestHandler(RestClient):
             list_quotas.append(user_quotas_dict)
         return list_quotas
 
+    def get_qtree_id(self, storage_id):
+        qtree_dict = {}
+        list_qtrees = self.list_qtrees(storage_id)
+        for qtrees in list_qtrees:
+            native_qtree_id = qtrees.get('native_qtree_id')
+            native_filesystem_id = qtrees.get('native_filesystem_id')
+            qtree_dict[native_filesystem_id] = native_qtree_id
+        return qtree_dict
+
     def list_shares(self, storage_id):
         list_shares = []
+        qtree_dict = self.get_qtree_id(storage_id)
         nfs_list = self.rest_call(self.REST_NFS_EXPORT_URL)
         for nfs in nfs_list:
             file_system_id = nfs.get('file_system', {}).get('id')
@@ -1088,7 +1138,7 @@ class RestHandler(RestClient):
                 'name': nfs.get('name'),
                 'storage_id': storage_id,
                 'native_filesystem_id': file_system_id,
-                'native_qtree_id': '',
+                'native_qtree_id': qtree_dict.get(file_system_id),
                 'protocol': constants.ShareProtocol.NFS,
                 'path': nfs.get('path')
             }
@@ -1096,21 +1146,15 @@ class RestHandler(RestClient):
         shares_list = self.rest_call(self.REST_SMB_SHARE_URL)
         for shares in shares_list:
             shares_path = shares.get('path')
+            file_system_id = shares.get('file_system_id')
             shares_dict = {
                 'native_share_id': shares.get('id'),
                 'name': shares.get('name'),
                 'storage_id': storage_id,
-                'native_filesystem_id': shares.get('file_system_id'),
-                'native_qtree_id': '',
+                'native_filesystem_id': file_system_id,
+                'native_qtree_id': qtree_dict.get(file_system_id),
                 'protocol': constants.ShareProtocol.CIFS,
                 'path': shares_path
             }
             list_shares.append(shares_dict)
         return list_shares
-
-    def get_qutree_id(self):
-        qtrees_dict = {}
-        qtrees_list = self.rest_call(self.REST_FILE_TREE_QUOTA_URL)
-        for qtrees in qtrees_list:
-            qtrees_dict[qtrees.get('file_system_id')] = qtrees.get('id')
-        return qtrees_dict
