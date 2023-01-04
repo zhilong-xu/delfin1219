@@ -232,7 +232,6 @@ class RestHandler(RestClient):
         appliances = self.rest_call(RestHandler.REST_APPLIANCE_URL)
         for appliance in appliances:
             appliance_id = appliance.get('id')
-            appliance_mode = appliance.get('mode')
             data = {'entity': consts.SPACE_METRICS_BY_APPLIANCE,
                     'entity_id': appliance_id}
             appliance_spaces = self.rest_call(self.REST_GENERATE_URL,
@@ -976,6 +975,7 @@ class RestHandler(RestClient):
                     continue
                 duplicate.add(about_timestamp)
                 cpu_utilization = perf.get('io_workload_cpu_utilization')
+                avg_io_size = perf.get('avg_io_size')
                 metrics_d = {
                     'iops': Decimal(str(perf.get('total_iops'))).quantize(
                         Decimal('0'), rounding="ROUND_HALF_UP"),
@@ -995,7 +995,8 @@ class RestHandler(RestClient):
                         perf.get('avg_read_latency') / units.k, 3),
                     "writeResponseTime": round(
                         perf.get('avg_write_latency') / units.k, 3),
-                    "ioSize": round(perf.get('avg_io_size') / units.Ki, 3),
+                    "ioSize": round(perf.get('avg_size') / units.Ki, 3) if
+                    avg_io_size is None else round(avg_io_size / units.Ki, 3),
                     "readIoSize": round(
                         perf.get('avg_read_size') / units.Ki, 3),
                     "writeIoSize": round(
@@ -1058,14 +1059,15 @@ class RestHandler(RestClient):
             nas_server_id = file_system.get('nas_server_id')
             nas_server_name = nas_dict.get(nas_server_id)
             native_qtree_id = f'{nas_server_id}{file_system_id}'
+            name = f'NAS Servers Name:{nas_server_name}' \
+                   f'@File Systems Name:{file_system_name}'
             qtrees_dict = {
                 'native_qtree_id': hashlib.md5(
                     native_qtree_id.encode()).hexdigest(),
-                'name': f'NAS Servers Name:{nas_server_name}'
-                        f'@File Systems Name:{file_system_name}',
+                'name': name,
                 'storage_id': storage_id,
                 'native_filesystem_id': file_system_id,
-                'path': '111111',
+                'path': name,
                 'security_mode': consts.FS_SECURITY_MODE_MAP.get(
                     file_system.get('access_policy'),
                     constants.NASSecurityMode.MIXED)
