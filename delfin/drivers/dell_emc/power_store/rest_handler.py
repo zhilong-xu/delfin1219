@@ -1089,8 +1089,7 @@ class RestHandler(RestClient):
                 'native_qtree_id': qtree_dict.get(file_system_id),
                 'capacity_hard_limit': tree_quota.get('hard_limit'),
                 'capacity_soft_limit': tree_quota.get('soft_limit'),
-                'used_capacity': tree_quota.get('size_used'),
-                'user_group_name': ''
+                'used_capacity': tree_quota.get('size_used')
             }
             list_quotas.append(tree_quotas_dict)
         user_quota_list = self.rest_call(self.REST_FILE_USER_QUOTA_URL)

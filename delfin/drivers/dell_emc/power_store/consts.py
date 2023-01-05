@@ -484,11 +484,13 @@ FILE_SYSTEM_CAP = {
     },
     constants.FileSystemMetric.READ_RESPONSE_TIME.name: {
         "unit": constants.FileSystemMetric.READ_RESPONSE_TIME.unit,
-        "description": constants.FileSystemMetric.READ_RESPONSE_TIME.description
+        "description":
+            constants.FileSystemMetric.READ_RESPONSE_TIME.description
     },
     constants.FileSystemMetric.WRITE_RESPONSE_TIME.name: {
         "unit": constants.FileSystemMetric.WRITE_RESPONSE_TIME.unit,
-        "description": constants.FileSystemMetric.WRITE_RESPONSE_TIME.description
+        "description":
+            constants.FileSystemMetric.WRITE_RESPONSE_TIME.description
     },
     constants.FileSystemMetric.IO_SIZE.name: {
         "unit": constants.FileSystemMetric.IO_SIZE.unit,
